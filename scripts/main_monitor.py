@@ -5,16 +5,20 @@ import os
 from datetime import datetime
 
 # ------------- Configuration ------------- #
-INTERVAL_SECONDS = 20  # 2 minutes by default
+INTERVAL_SECONDS = 120  # 2 minutes by default
 SCRIPT_PATH = os.path.join(os.path.dirname(
     __file__), "live_stream_processor.py")
 PYTHON_EXECUTABLE = sys.executable
 
+# MQTT Configuration
+MQTT_BROKER = "localhost"
+MQTT_PORT = 1883
+TRAIN_ID = "1"
+CARRIAGE_NUMBER = "1"
+
 # ---------------------------------------------------------------------------------------------------------------#
 # Function to display a countdown timer on the same line in the terminal
 # Args: Number of seconds to countdown
-
-
 def run_countdown(seconds):
     try:
         # Initial newline to separate from previous output
@@ -32,7 +36,6 @@ def run_countdown(seconds):
 # ---------------------------------------------------------------------------------------------------------------#
 # Main function to orchestrate the train carriage load monitoring system
 
-
 def main():
     # Print the starting message
     print(f"Starting Main Monitor.")
@@ -49,9 +52,16 @@ def main():
 
             # 2. Execute the live stream processor in single-shot mode
             # We pass --single-shot so it runs once and exits
-            # We also pass any other necessary default args if needed,
-            # but live_stream_processor.py has defaults.
-            command = [PYTHON_EXECUTABLE, SCRIPT_PATH, "--single-shot"]
+            # We also pass the MQTT configuration arguments
+            command = [
+                PYTHON_EXECUTABLE, 
+                SCRIPT_PATH, 
+                "--single-shot",
+                "--broker", MQTT_BROKER,
+                "--port", str(MQTT_PORT),
+                "--train-id", TRAIN_ID,
+                "--carriage-number", CARRIAGE_NUMBER
+            ]
 
             # Run the subprocess
             result = subprocess.run(command, text=True)

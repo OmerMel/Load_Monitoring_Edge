@@ -3,6 +3,7 @@ import os
 import time
 import cv2
 import sys
+import numpy as np
 from typing import Optional
 
 # Class for handles image capture using the Raspberry Pi camera module
@@ -22,7 +23,7 @@ class Camera:
     # ---------------------------------------------------------------------------------------------------------------#
     # Function to capture a single image from the camera
     # Returns: The captured image as a numpy array (BGR), or None if capture failed
-    def capture(self) -> Optional[cv2.Mat]:
+    def capture(self) -> Optional[np.ndarray]:
 
         # Remove previous temp file if it exists
         if os.path.exists(self.temp_file):
@@ -47,7 +48,7 @@ class Camera:
 
         try:
             # Run the command
-            result = subprocess.run(command, capture_output=True, text=True)
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
 
             if result.returncode != 0:
                 print(f"Error executing rpicam-jpeg: {result.stderr}")
@@ -59,7 +60,7 @@ class Camera:
                 return None
 
             # Load the image
-            frame = cv2.imread(self.temp_file)
+            frame = cv2.imread(self.temp_file) # pylint: disable=no-member
             if frame is None:
                 print("Error: Failed to decode captured image.")
                 return None
