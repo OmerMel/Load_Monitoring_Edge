@@ -2,31 +2,15 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
-from dataclasses import dataclass
 from typing import List, Tuple, Optional
 from ultralytics import YOLO
 
+from src.entities.detection import DetectionBox
+from src.entities.image_frame import ImageFrame
+
 # ---------------------------------------------------------------------------------------------------------------#
-# Represents a single detected bounding box for a person
-
-
-@dataclass
-class DetectionBox:
-
-    # Coordinates are in pixel space:
-
-    # (x1, y1) -> top-left corner
-    x1: int
-    y1: int
-    # (x2, y2) -> bottom-right corner
-    x2: int
-    y2: int
-    conf: float  # Detection confidence score
-# ---------------------------------------------------------------------------------------------------------------#
-# PeopleDetector class
-
-
-class PeopleDetector:
+# ImageProcessor class
+class ImageProcessor:
 
     # ---------------------------------------------------------------------------------------------------------------#
     # Constructor - Initialize the YOLO model and detection parameters
@@ -61,13 +45,15 @@ class PeopleDetector:
 
     # ---------------------------------------------------------------------------------------------------------------#
     # Detect people in a single image
-    # Args: frame_bgr: Input image in BGR format (OpenCV default).
-    # Returns: Number of detected people, List of DetectionBox objects, Image with bounding boxes and count overlay (BGR).
-    def detect(self, frame_bgr: np.ndarray) -> Tuple[int, List[DetectionBox], np.ndarray]:
+    # Args: frame: Input ImageFrame object.
+    # Returns: Number of detected people, List of DetectionBox objects.
+    def detect(self, frame: ImageFrame) -> Tuple[int, List[DetectionBox]]:
 
         # Check if the input image is None
-        if frame_bgr is None:
-            raise ValueError("frame_bgr is None")
+        if frame is None or frame.data is None:
+            raise ValueError("frame or frame.data is None")
+
+        frame_bgr = frame.data
 
         # -------- Improve the contrast of the image using CLAHE --------#
         # Preprocessing - Apply CLAHE if enabled (improves the contrast of the image)
@@ -95,7 +81,6 @@ class PeopleDetector:
         )
 
         boxes_out: List[DetectionBox] = []
-        annotated = frame_bgr.copy()
         person_count = 0
 
         # Iterate over YOLO results and extract person detections
@@ -123,38 +108,46 @@ class PeopleDetector:
 
                 boxes_out.append(DetectionBox(x1, y1, x2, y2, conf))
 
-                # Draw bounding box around detected person
-                cv2.rectangle(
-                    annotated,
-                    (x1, y1),
-                    (x2, y2),
-                    (0, 255, 0),
-                    2
-                )
+        return person_count, boxes_out
 
-                # Draw label with confidence score
-                label = f"Person {conf:.2f}"
-                (label_w, label_h), _ = cv2.getTextSize(
-                    label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+    # ---------------------------------------------------------------------------------------------------------------#
+    # Helper method to draw annotations on the image
+    def draw_annotations(self, frame: ImageFrame, boxes: List[DetectionBox], count: int) -> np.ndarray:
+        annotated = frame.data.copy()
+        
+        for box in boxes:
+            # Draw bounding box around detected person
+            cv2.rectangle(
+                annotated,
+                (box.x1, box.y1),
+                (box.x2, box.y2),
+                (0, 255, 0),
+                2
+            )
 
-                # Draw label background for better visibility
-                cv2.rectangle(annotated, (x1, y1 - 20),
-                              (x1 + label_w, y1), (0, 255, 0), -1)
+            # Draw label with confidence score
+            label = f"Person {box.conf:.2f}"
+            (label_w, label_h), _ = cv2.getTextSize(
+                label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
 
-                cv2.putText(
-                    annotated,
-                    label,
-                    (x1, y1 - 5),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (0, 0, 0),  # Black text on green background
-                    2,
-                )
+            # Draw label background for better visibility
+            cv2.rectangle(annotated, (box.x1, box.y1 - 20),
+                          (box.x1 + label_w, box.y1), (0, 255, 0), -1)
+
+            cv2.putText(
+                annotated,
+                label,
+                (box.x1, box.y1 - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 0, 0),  # Black text on green background
+                2,
+            )
 
         # Draw total people count in the top-right corner
-        self._draw_count_overlay(annotated, person_count)
-
-        return person_count, boxes_out, annotated
+        self._draw_count_overlay(annotated, count)
+        
+        return annotated
 
     # ---------------------------------------------------------------------------------------------------------------#
     # Helper method to draw the detection count on the image
