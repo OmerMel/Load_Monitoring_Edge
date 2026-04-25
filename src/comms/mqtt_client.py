@@ -1,11 +1,16 @@
 import json
 import time
-from datetime import datetime
 import uuid
+from dataclasses import asdict
+
 import paho.mqtt.client as mqtt
 
+from src.entities.sensor_data_entity import SensorDataEntity
+from src.converters.sensor_data_converter import SensorDataConverter
+from src.interfaces.comms_client import CommsClient
 
-class MqttSensorClient:
+
+class MqttSensorClient(CommsClient):
     # ---------------------------------------------------------------------------------------------------------------#
     # Constructor - Initialize the MQTT client
     def __init__(self, broker_address: str, train_id: str, carriage_number: int, port: int = 1883):
@@ -69,7 +74,6 @@ class MqttSensorClient:
 
     # ---------------------------------------------------------------------------------------------------------------#
     # Function to disconnect from the MQTT broker
-    # Args: None
     def disconnect(self):
         self.client.loop_stop()
         self.client.disconnect()
@@ -82,22 +86,14 @@ class MqttSensorClient:
 
     # ---------------------------------------------------------------------------------------------------------------#
     # Function to send an update to the MQTT broker
-    def send_update(self, train_id: int, carriage_number: int, tof_number: int, camera_number: int) -> bool:
+    def send_update(self, data: SensorDataEntity) -> bool:
         if not self.connected:
             print("Client is not connected. Cannot publish.")
             return False
 
-        payload = {
-            "trainId": train_id,
-            "carriageNumber": carriage_number,
-            "cameraCount": camera_number,
-            "irCount": tof_number,
-            "calculatedOccupancy": 0,
-            "timestamp": datetime.now().isoformat()
-        }
-
-        # Convert the payload to a JSON string
-        json_payload = json.dumps(payload)
+        # Entity ->  DTO -> JSON string
+        dto = SensorDataConverter.to_dto(data)
+        json_payload = json.dumps(asdict(dto))
         print(f"Publishing to {self.topic}: {json_payload}")
 
         # Send the message to the MQTT broker
