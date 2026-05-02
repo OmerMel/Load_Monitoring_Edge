@@ -65,7 +65,10 @@ def parse_args():
     )
     return parser.parse_args()
 
-
+# ---------------------------------------------------------------------------------------------------------------#
+# Function to build the image source (live camera or images from the project images folder)
+# Args: Mode (live or images), camera type (usb or rpi), images directory
+# Returns: ImageSource object
 def _build_image_source(mode: str, camera_type: str, images_dir: str):
     if mode == "images":
         return FolderImageSource(images_dir)
@@ -96,7 +99,8 @@ def run_countdown(seconds):
         print("\nCountdown interrupted.")
         raise
 
-
+# ---------------------------------------------------------------------------------------------------------------#
+# Function to main function to run the monitor runner
 def main():
     global running
     args = parse_args()
@@ -152,7 +156,7 @@ def main():
         mqtt_client.connect()
 
         # Initialize the Load Monitor Service (Orchestrator)
-        load_monitor = LoadMonitorService(
+        load_monitor_service = LoadMonitorService(
             camera=image_source,
             sensors=sensors,
             processor=processor,
@@ -180,7 +184,7 @@ def main():
             start_time = time.time()
 
             # 2. Execute a full monitoring cycle via the LoadMonitorService
-            result = load_monitor.run_cycle()
+            result = load_monitor_service.run_cycle()
             
             if result:
                 print(f"[{time.strftime('%H:%M:%S')}] People detected: {result['person_count']}")

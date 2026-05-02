@@ -19,32 +19,33 @@ class UsbCamera(ImagingDevice):
         self.width = width
         self.height = height
         
-        # Initialize the VideoCapture object using V4L2 (Video4Linux2) backend
-        # V4L2 is the standard and most stable backend for USB cameras on Raspberry Pi/Linux
-        self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2) # pylint: disable=no-member
-        
-        if not self.cap.isOpened():
-            print(f"Error: Could not open USB camera at index {self.camera_index}.")
-        else:
-            # Try to set the requested resolution
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-            
-            # Read back the actual resolution to confirm
-            actual_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-            actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            print(f"Camera initialized at resolution: {int(actual_width)}x{int(actual_height)}")
-
+        print(f"USB Camera {self.camera_index} configured for resolution: {self.width}x{self.height}")
     # ---------------------------------------------------------------------------------------------------------------#
     # Function to capture a single image from the USB camera
     # Returns: The captured image as an ImageFrame, or None if capture failed
     def capture(self) -> Optional[ImageFrame]:
-        if not self.cap.isOpened():
+
+        # Initialize the VideoCapture object using V4L2 (Video4Linux2) backend
+        # V4L2 is the standard and most stable backend for USB cameras on Raspberry Pi/Linux
+        cap = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2) # pylint: disable=no-member
+
+        if not cap.isOpened():
             print("Error: Camera is not initialized.")
             return None
             
+        # Try to set the requested resolution
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+
+        # Throwing in a few frames to let the camera balance on the light in the room
+        for _ in range(30):
+            cap.grab()
+        
         # Read a frame from the camera
-        ret, frame = self.cap.read() # pylint: disable=no-member
+        ret, frame = cap.read() # pylint: disable=no-member
+
+        # Closing the camera
+        cap.release()
         
         if not ret or frame is None:
             print("Error: Failed to grab frame from USB camera.")
