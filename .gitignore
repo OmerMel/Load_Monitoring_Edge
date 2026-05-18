@@ -12,3 +12,8 @@ __pycache__/
 
 # Outputs
 outputs/
+
+#YOLO Models
+yolo11n.pt
+yolov8n.pt
+yolov8s.pt

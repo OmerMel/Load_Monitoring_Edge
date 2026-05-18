@@ -47,14 +47,10 @@ class LoadMonitorService:
             print("Warning: Failed to capture image.")
             return None
 
-        total_ir_count = 0
-        for sensor in self.sensors:
-            reading = sensor.read()
-            # TODO: Replace dummy sensor values when real hardware integration is ready.
-            total_ir_count += reading.value
-        final_ir_count = total_ir_count / \
-            len(self.sensors) if self.sensors else 0
-
+        reading = self.sensors[0].read()
+        final_ir_count = reading.value
+        
+        print(f"[Monitor] Total synchronized passengers in carriage: {final_ir_count}")
         person_count, detections = self.processor.detect(frame)
 
         sensor_data = SensorDataEntity(

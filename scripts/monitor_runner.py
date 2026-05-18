@@ -1,6 +1,9 @@
 import sys
 import os
 import argparse
+import threading
+import board
+import busio
 import time
 from datetime import datetime
 import signal
@@ -11,15 +14,16 @@ if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 from src.utils.file_utils import FileManager
-from src.hal import UsbCamera, RpiCamera, TOFSensor
+from src.hal import UsbCamera, RpiCamera, TofPair, TofUnit
 from src.comms.mqtt_client import MqttSensorClient
 from src.processing.image_processor import ImageProcessor
+from src.processing.carriage_counter import CarriageCounter
 from src.services.load_monitor_service import LoadMonitorService
 from src.sources import FolderImageSource
 
 # --------------------------------------------Configuration---------------------------------------------------#
 
-INTERVAL_SECONDS = 20  # 120 seconds between cycles
+INTERVAL_SECONDS = 20  # seconds between cycles
 
 # MQTT Configuration
 MQTT_BROKER = "localhost"
@@ -28,7 +32,7 @@ TRAIN_ID = 1
 CARRIAGE_NUMBER = 1
 
 # Processing Configuration
-MODEL_PATH = "yolov8n.pt"
+MODEL_PATH = "yolo11n.pt"
 CONFIDENCE_THRESHOLD = 0.30 # Confidence threshold for the detections
 IOU_THRESHOLD = 0.45 # Prevents duplicate boxes around the same person
 IMAGE_SIZE = 1280 # The size of the image to be processed by the model (Try to change to 1920)
@@ -67,8 +71,6 @@ def parse_args():
 
 # ---------------------------------------------------------------------------------------------------------------#
 # Function to build the image source (live camera or images from the project images folder)
-# Args: Mode (live or images), camera type (usb or rpi), images directory
-# Returns: ImageSource object
 def _build_image_source(mode: str, camera_type: str, images_dir: str):
     if mode == "images":
         return FolderImageSource(images_dir)
@@ -81,11 +83,9 @@ def _build_image_source(mode: str, camera_type: str, images_dir: str):
 
 # ---------------------------------------------------------------------------------------------------------------#
 # Function to display a countdown timer on the same line in the terminal
-# Args: Number of seconds to countdown
 def run_countdown(seconds):
     try:
-        # Initial newline to separate from previous output
-        print()
+        print() # Initial newline to separate from previous output
         for remaining in range(seconds, 0, -1):
             if not running:
                 break
@@ -100,12 +100,102 @@ def run_countdown(seconds):
         raise
 
 # ---------------------------------------------------------------------------------------------------------------#
-# Function to main function to run the monitor runner
+# Function to initialize ToF sensors safely and assign them the shared counter
+def setup_tof_sensors(i2c_bus, shared_counter: CarriageCounter) -> TofPair:
+    print("[Boot Sequence] Setting up ToF I2C Addresses...")
+    
+    # 1. יצירת האובייקטים לפי GPIO
+    tof_outside = TofUnit(xshut_pin=17, target_i2c_address=0x30, threshold_mm=1200, i2c_bus=i2c_bus)
+    tof_inside = TofUnit(xshut_pin=27, target_i2c_address=0x31, threshold_mm=1200, i2c_bus=i2c_bus)
+
+    # 2. כיבוי טוטאלי ומניעת התנגשויות
+    tof_outside.turn_off()
+    tof_inside.turn_off()
+    time.sleep(0.1)
+
+    # 3. הדלקה והגדרת חיישן חיצוני
+    print("Initializing Outside Sensor...")
+    tof_outside.turn_on()
+    tof_outside.setup_sensor() 
+    
+    # 4. הדלקה והגדרת חיישן פנימי
+    print("Initializing Inside Sensor...")
+    tof_inside.turn_on()
+    tof_inside.setup_sensor() 
+
+    print("[Boot Sequence] ToF sensors ready!")
+    
+    # מחזירים את הזוג ומעבירים לו את המונה המשותף של הקרון!
+    return TofPair(
+        outside_unit=tof_outside, 
+        inside_unit=tof_inside, 
+        sensor_id="door_1_tof_pair",
+        shared_counter=shared_counter
+    )
+
+# ---------------------------------------------------------------------------------------------------------------#
+# Function to initialize all system components neatly
+def initialize_system_components(args):
+    print("Initializing components...")
+    
+    # 1. Camera / Image Source
+    image_source = _build_image_source(args.mode, args.camera, IMAGES_DIR)
+
+    # 2. Carriage Counter (The Single Source of Truth for passenger count)
+    carriage_counter = CarriageCounter(sensor_id=f"carriage_{CARRIAGE_NUMBER}_total")
+
+    # 3. ToF Sensors Hardware Setup
+    i2c_bus = busio.I2C(board.SCL, board.SDA)
+    door1_sensor = setup_tof_sensors(i2c_bus, shared_counter=carriage_counter)
+
+    # 4. Start ToF Background Thread
+    tof_thread = threading.Thread(target=door1_sensor.start_polling, daemon=True)
+    tof_thread.start()
+    print("[Main] ToF background polling thread started successfully.")
+
+    # 5. The orchestrator only needs to listen to the central carriage counter!
+    sensors = [carriage_counter]
+
+    # 6. Computer Vision Processor
+    processor = ImageProcessor(
+        model_path=MODEL_PATH,
+        conf=CONFIDENCE_THRESHOLD,
+        iou=IOU_THRESHOLD,
+        imgsz=IMAGE_SIZE,
+        min_box_area=MIN_BOX_AREA,
+        use_clahe=USE_CLAHE,
+    )
+
+    # 7. File Manager & MQTT
+    file_manager = FileManager(output_dir=OUTPUT_DIR)
+    
+    mqtt_client = MqttSensorClient(
+        broker_address=MQTT_BROKER,
+        train_id=str(TRAIN_ID),
+        carriage_number=CARRIAGE_NUMBER,
+        port=MQTT_PORT,
+    )
+    mqtt_client.connect()
+
+    # 8. Main Orchestrator Service
+    load_monitor_service = LoadMonitorService(
+        camera=image_source,
+        sensors=sensors,
+        processor=processor,
+        comms=mqtt_client,
+        train_id=TRAIN_ID,
+        carriage_number=CARRIAGE_NUMBER,
+    )
+
+    return image_source, mqtt_client, file_manager, processor, load_monitor_service
+
+
+# ---------------------------------------------------------------------------------------------------------------#
+# Main Application Loop
 def main():
     global running
     args = parse_args()
 
-    # Print the starting message
     print("Starting Monitor Runner.")
     print(f"Mode: {args.mode}")
     if args.mode == "live":
@@ -114,108 +204,59 @@ def main():
     print("Press Ctrl+C to stop.")
     print("-" * 50)
 
-    # --------------------------------------------- Initialize components -----------------------------------------------#
-    print("Initializing components...")
-    
     image_source = None
     mqtt_client = None
+
     try:
-        # Initialize the selected image source (live camera or images from the project images folder)
-        image_source = _build_image_source(args.mode, args.camera, IMAGES_DIR)
-
-        # Initialize the ToF sensor(s)
-        sensors = [
-            TOFSensor(sensor_id="tof_1"),
-            # TOFSensor(sensor_id="tof_2"),
-            # TOFSensor(sensor_id="tof_3"),
-            # TOFSensor(sensor_id="tof_4")
-        ]
-
-        # Initialize the image processor
-        processor = ImageProcessor(
-            model_path=MODEL_PATH,
-            conf=CONFIDENCE_THRESHOLD,
-            iou=IOU_THRESHOLD,
-            imgsz=IMAGE_SIZE,
-            min_box_area=MIN_BOX_AREA,
-            use_clahe=USE_CLAHE,
-        )
-
-        # Initialize the file manager
-        file_manager = FileManager(output_dir=OUTPUT_DIR)
-
-        # Initialize the MQTT client
-        mqtt_client = MqttSensorClient(
-            broker_address=MQTT_BROKER,
-            train_id=str(TRAIN_ID),
-            carriage_number=CARRIAGE_NUMBER,
-            port=MQTT_PORT,
-        )
-        
-        # Connect to the MQTT broker
-        mqtt_client.connect()
-
-        # Initialize the Load Monitor Service (Orchestrator)
-        load_monitor_service = LoadMonitorService(
-            camera=image_source,
-            sensors=sensors,
-            processor=processor,
-            comms=mqtt_client,
-            train_id=TRAIN_ID,
-            carriage_number=CARRIAGE_NUMBER,
-        )
-
+        # Initialize everything cleanly using our helper function
+        image_source, mqtt_client, file_manager, processor, load_monitor_service = initialize_system_components(args)
     except Exception as e:
         print(f"Initialization failed: {e}")
         return
-
-    print("Starting processing loop. Press Ctrl+C to stop.")
 
     # Set up signal handling for graceful shutdown
     original_sigint = signal.getsignal(signal.SIGINT)
     signal.signal(signal.SIGINT, signal_handler)
 
+    print("Starting processing loop. Press Ctrl+C to stop.")
+
     try:
         while running:
-            # 1. Log start time
             start_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             print(f"\n[{start_time_str}] Starting processing cycle...")
             
             start_time = time.time()
 
-            # 2. Execute a full monitoring cycle via the LoadMonitorService
+            # Execute a full monitoring cycle
             result = load_monitor_service.run_cycle()
             
             if result:
-                print(f"[{time.strftime('%H:%M:%S')}] People detected: {result['person_count']}")
+                print(f"[{time.strftime('%H:%M:%S')}] People detected (YOLO): {result['person_count']}")
                 print(f"Sensor data sent: {result['sensor_data']}")
 
                 # Save the annotated image
                 annotated_frame = processor.draw_annotations(result['frame'], result['detections'], result['person_count'])
-                
                 source_id = result['frame'].source_id
+                
                 if args.mode == "images" and source_id.startswith("file:"):
-                    # Extract 'load_car_13' from 'file:load_car_13.jpg'
                     original_name = source_id.replace("file:", "").rsplit(".", 1)[0]
                     prefix = f"images_result_{original_name}"
                     file_manager.save_image(annotated_frame, prefix=prefix, timestamp=False)
                 else:
                     file_manager.save_image(annotated_frame, prefix="live", timestamp=True)
+                    
             elif args.mode == "images" and getattr(image_source, "exhausted", False):
                 print("\nAll images processed.")
                 break
 
-            # Calculate processing time
             processing_time = time.time() - start_time
             print(f"Cycle processing time: {processing_time:.4f} seconds")
 
-            # 3. If in images mode, we process all available images without waiting for the interval
+            # Handle delays based on mode
             if args.mode == "images":
-                # Add a tiny sleep to not completely lock up the CPU if loading images instantly
                 time.sleep(0.1)
                 continue
 
-            # 4. If in live mode, Countdown to next execution
             if running:
                 run_countdown(INTERVAL_SECONDS)
 
@@ -224,7 +265,7 @@ def main():
     except Exception as e:
         print(f"\nAn unexpected error occurred during processing: {e}")
     finally:
-        # Restore original signal handler
+        # Restore original signal handler and cleanup
         signal.signal(signal.SIGINT, original_sigint)
         
         print("\nCleaning up resources...")
