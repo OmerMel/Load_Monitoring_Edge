@@ -49,8 +49,8 @@ class LoadMonitorService:
 
         reading = self.sensors[0].read()
         final_ir_count = reading.value
-        
-        print(f"[Monitor] Total synchronized passengers in carriage: {final_ir_count}")
+
+        # print(f"[Monitor] Total synchronized passengers in carriage: {final_ir_count}")
         person_count, detections = self.processor.detect(frame)
 
         sensor_data = SensorDataEntity(
