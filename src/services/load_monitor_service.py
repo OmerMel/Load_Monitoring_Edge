@@ -14,8 +14,6 @@ class LoadMonitorService:
     Ties together image input, sensors, processing, and communications.
     """
 
-    # ---------------------------------------------------------------------------------------------------------------#
-    # Function to initialize the LoadMonitorService
     def __init__(
         self,
         camera: ImagingDevice,
@@ -32,8 +30,7 @@ class LoadMonitorService:
         self.train_id = train_id
         self.carriage_number = carriage_number
 
-    # ---------------------------------------------------------------------------------------------------------------#
-    # Function to run a single monitoring cycle
+
     def run_cycle(self) -> Optional[dict]:
         """
         Executes a single monitoring cycle:
@@ -72,4 +69,3 @@ class LoadMonitorService:
             "detections": detections,
             "person_count": person_count,
         }
-    # ---------------------------------------------------------------------------------------------------------------#

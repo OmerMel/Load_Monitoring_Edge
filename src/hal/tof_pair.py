@@ -1,4 +1,3 @@
-import random
 import time
 from datetime import datetime
 from src.hal.tof_unit import TofUnit
@@ -11,7 +10,7 @@ class TofPair(Sensor):
     Hardware Abstraction for a ToF sensor.
     Currently implements a dummy reading for testing purposes.
     """
-    
+
     def __init__(self, outside_unit: TofUnit, inside_unit: TofUnit, sensor_id: str, shared_counter: CarriageCounter, poll_interval_sec: float = 0.05):
             self.outside = outside_unit
             self.inside = inside_unit
@@ -21,9 +20,7 @@ class TofPair(Sensor):
             self.state = "IDLE"
             self.is_running = False
 
-
     def start_polling(self):
-        """לולאה שרצה ברקע ודוגמת את החיישנים בקצב גבוה"""
         self.is_running = True
         while self.is_running:
             self._update_state()
@@ -36,67 +33,57 @@ class TofPair(Sensor):
         out_blocked = self.outside.is_blocked()
         in_blocked = self.inside.is_blocked()
 
-        # ----------------------------------------------------
-        # מצב התחלתי - ממתינים לתנועה
-        # ----------------------------------------------------
+        # Initial state - waiting for movement
         if self.state == "IDLE":
             if out_blocked and not in_blocked:
-                self.state = "ENTER_START"   # התחיל להיכנס
+                self.state = "ENTER_START"   # Started entering
             elif in_blocked and not out_blocked:
-                self.state = "EXIT_START"    # התחיל לצאת
+                self.state = "EXIT_START"    # Started exiting
             elif out_blocked and in_blocked:
-                self.state = "UNKNOWN"       # חסימה פתאומית של שניהם (נדיר)
+                self.state = "UNKNOWN"       # Sudden blockage of both (rare)
 
-        # ----------------------------------------------------
-        # תהליך כניסה (Person is entering)
-        # ----------------------------------------------------
+        # Entry process (person is entering)
         elif self.state == "ENTER_START":
             if out_blocked and in_blocked:
-                self.state = "ENTER_CROSSED"  # הגיע לאמצע המעבר (שניהם חסומים)
+                self.state = "ENTER_CROSSED"  # Reached the middle of the passage (both blocked)
             elif not out_blocked and in_blocked:
-                self.state = "ENTER_FINISHING" # דילג על האמצע (עבר מהר מאוד)
+                self.state = "ENTER_FINISHING" # Skipped the middle (moved very fast)
             elif not out_blocked and not in_blocked:
-                self.state = "IDLE"           # אזעקת שווא / התחרט וחזר החוצה
+                self.state = "IDLE"           # False alarm / changed their mind and stepped back out
 
         elif self.state in ["ENTER_CROSSED", "ENTER_FINISHING"]:
             if not out_blocked and not in_blocked:
-                # המעבר הושלם בהצלחה! האדם סיים לעבור ושני החיישנים פנויים
+                # Crossing completed successfully! Person finished passing, both sensors clear
                 self.shared_counter.person_entered()
-                # print(f">>> [ToF {self.sensor_id}] Person ENTERED.")
                 self.state = "IDLE"
             elif not out_blocked and in_blocked:
-                self.state = "ENTER_FINISHING" # התקדמות טבעית קדימה
+                self.state = "ENTER_FINISHING" # Natural forward progress
             elif out_blocked and not in_blocked:
-                self.state = "ENTER_START"     # האדם הלך אחורה במקום לסיים כניסה
+                self.state = "ENTER_START"     # Person stepped back instead of finishing the entry
 
-        # ----------------------------------------------------
-        # תהליך יציאה (Person is exiting)
-        # ----------------------------------------------------
+        # Exit process (person is exiting)
         elif self.state == "EXIT_START":
             if out_blocked and in_blocked:
-                self.state = "EXIT_CROSSED"   # הגיע לאמצע
+                self.state = "EXIT_CROSSED"   # Reached the middle
             elif out_blocked and not in_blocked:
-                self.state = "EXIT_FINISHING" # דילג על האמצע (עבר מהר)
+                self.state = "EXIT_FINISHING" # Skipped the middle (moved fast)
             elif not out_blocked and not in_blocked:
-                self.state = "IDLE"           # התחרט וחזר פנימה לקרון
+                self.state = "IDLE"           # Changed their mind and stepped back into the carriage
 
         elif self.state in ["EXIT_CROSSED", "EXIT_FINISHING"]:
             if not out_blocked and not in_blocked:
-                # המעבר הושלם בהצלחה!
+                # Crossing completed successfully!
                 self.shared_counter.person_exited()
-                # print(f"<<< [ToF {self.sensor_id}] Person EXITED.")
                 self.state = "IDLE"
             elif out_blocked and not in_blocked:
-                self.state = "EXIT_FINISHING" # התקדמות טבעית החוצה
+                self.state = "EXIT_FINISHING" # Natural progress outward
             elif not out_blocked and in_blocked:
-                self.state = "EXIT_START"     # האדם הלך אחורה אל תוך הקרון
+                self.state = "EXIT_START"     # Person stepped back into the carriage
 
-        # ----------------------------------------------------
-        # מצב לא ידוע (הפרעה או חסימה פתאומית)
-        # ----------------------------------------------------
+        # Unknown state (interference or sudden blockage)
         elif self.state == "UNKNOWN":
             if not out_blocked and not in_blocked:
-                self.state = "IDLE" # ממתינים שיתפנה ומתאפסים
+                self.state = "IDLE" # Wait for it to clear and reset
 
     def read(self) -> SensorReading:
         return SensorReading(

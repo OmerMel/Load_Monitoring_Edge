@@ -4,40 +4,36 @@ from src.interfaces.sensor import Sensor
 from src.entities.sensor_reading import SensorReading
 
 class CarriageCounter(Sensor):
-    def __init__(self, sensor_id="carriage_total"):
+    def __init__(self, sensor_id: str):
         self.sensor_id = sensor_id
         self._current_count = 0
-        
-        # מנעול קריטי: מוודא ששתי דלתות לא מעדכנות את המספר באותו חלקיק שנייה
+
+        # Critical lock: ensures two doors don't update the count in the same instant
         self._lock = threading.Lock()
 
     def person_entered(self):
-        """פונקציה שנקראת על ידי כל דלת כשמישהו נכנס"""
         with self._lock:
             self._current_count += 1
-            print(f"\n[EVENT] Person entered. Sensors counter: {self._current_count}")
+            count = self._current_count
+        print(f"\n[EVENT] Person entered. Sensors counter: {count}")
 
     def person_exited(self):
-        """פונקציה שנקראת על ידי כל דלת כשמישהו יוצא"""
         with self._lock:
-            # כאן אנחנו מוודאים שהקרון לא יורד מ-0, ולא בתוך הדלת הבודדת!
+            # Ensures the carriage count doesn't go below 0, carriage-wide (not just per door)
             self._current_count = max(0, self._current_count - 1)
-            print(f"\n[EVENT] Person exited. Sensors counter: {self._current_count}")
+            count = self._current_count
+        print(f"\n[EVENT] Person exited. Sensors counter: {count}")
 
     def set_count(self, count: int):
-        """מעדכן את המונה באופן ישיר (למשל במקרה של זיהוי סחיפה)"""
         with self._lock:
             self._current_count = max(0, count)
-            print(f"\n[EVENT] Counter reset to {self._current_count} due to drift correction")
+            new_count = self._current_count
+        print(f"\n[EVENT] Counter reset to {new_count} due to drift correction")
 
     def read(self) -> SensorReading:
-        """
-        מממש את הממשק Sensor. 
-        זה מה שה-LoadMonitorService יקרא!
-        """
         with self._lock:
             count = self._current_count
-            
+
         return SensorReading(
             value=count,
             timestamp=datetime.now(),
