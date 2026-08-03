@@ -7,6 +7,7 @@ import busio
 import time
 from datetime import datetime
 import signal
+import subprocess
 
 # Add the project root to the python path so we can import from src
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -23,7 +24,7 @@ from src.sources import FolderImageSource
 
 # --------------------------------------------Configuration---------------------------------------------------#
 
-INTERVAL_SECONDS = 20  # seconds between cycles
+INTERVAL_SECONDS = 30  # seconds between cycles
 
 # MQTT Configuration
 MQTT_BROKER = "localhost"
@@ -32,11 +33,11 @@ TRAIN_ID = 1
 CARRIAGE_NUMBER = 1
 
 # Processing Configuration
-MODEL_PATH = "yolo11n.pt"
-CONFIDENCE_THRESHOLD = 0.30 # Confidence threshold for the detections
+MODEL_PATH = "yolo26s.pt"
+CONFIDENCE_THRESHOLD = 0.25 # Confidence threshold for the detections
 IOU_THRESHOLD = 0.45 # Prevents duplicate boxes around the same person
-IMAGE_SIZE = 1280 # The size of the image to be processed by the model (Try to change to 1920)
-MIN_BOX_AREA = 500 # Minimum box area to consider valid area of the box
+IMAGE_SIZE = 1280 # The size of the image to be processed by the model (Only 640 for ncnn format)
+MIN_BOX_AREA = 200 # Minimum box area to consider valid area of the box
 USE_CLAHE = True # Improve the contrast of the image using CLAHE (if the camera suffers from low light)
 OUTPUT_DIR = "outputs" # The directory to save the annotated images
 IMAGES_DIR = os.path.join(PROJECT_ROOT, "images") # The directory to save the images
@@ -66,6 +67,11 @@ def parse_args():
         choices=("rpi", "usb"),
         default="rpi",
         help="Camera type to use in live mode.",
+    )
+    parser.add_argument(
+        "--no-sensors",
+        action="store_true",
+        help="Run the script without initializing ToF sensors.",
     )
     return parser.parse_args()
 
@@ -105,23 +111,29 @@ def setup_tof_sensors(i2c_bus, shared_counter: CarriageCounter) -> TofPair:
     print("[Boot Sequence] Setting up ToF I2C Addresses...")
     
     # 1. יצירת האובייקטים לפי GPIO
-    tof_outside = TofUnit(xshut_pin=17, target_i2c_address=0x30, threshold_mm=1200, i2c_bus=i2c_bus)
-    tof_inside = TofUnit(xshut_pin=27, target_i2c_address=0x31, threshold_mm=1200, i2c_bus=i2c_bus)
+    tof_outside = TofUnit(xshut_pin=27, target_i2c_address=0x30, threshold_mm=1000, i2c_bus=i2c_bus)
+    tof_inside = TofUnit(xshut_pin=17, target_i2c_address=0x32, threshold_mm=1000, i2c_bus=i2c_bus)
 
     # 2. כיבוי טוטאלי ומניעת התנגשויות
+    print("ToF 0x30 turning off")
     tof_outside.turn_off()
+    print("ToF 0x31 turning off")
     tof_inside.turn_off()
-    time.sleep(0.1)
+    time.sleep(0.5)
 
+    # 4. הדלקה והגדרת חיישן פנימי
+    print("Initializing Inside (0x31) Sensor...")
+    tof_inside.turn_on()
+    time.sleep(0.5)
+    tof_inside.setup_sensor() 
+    
     # 3. הדלקה והגדרת חיישן חיצוני
-    print("Initializing Outside Sensor...")
+    print("Initializing Outside (0x30) Sensor...")
     tof_outside.turn_on()
+    time.sleep(0.5)
     tof_outside.setup_sensor() 
     
-    # 4. הדלקה והגדרת חיישן פנימי
-    print("Initializing Inside Sensor...")
-    tof_inside.turn_on()
-    tof_inside.setup_sensor() 
+
 
     print("[Boot Sequence] ToF sensors ready!")
     
@@ -144,15 +156,21 @@ def initialize_system_components(args):
     # 2. Carriage Counter (The Single Source of Truth for passenger count)
     carriage_counter = CarriageCounter(sensor_id=f"carriage_{CARRIAGE_NUMBER}_total")
 
-    # 3. ToF Sensors Hardware Setup
-    i2c_bus = busio.I2C(board.SCL, board.SDA)
-    door1_sensor = setup_tof_sensors(i2c_bus, shared_counter=carriage_counter)
+# 3. ToF Sensors Hardware Setup (With bypass and error handling)
+    if not args.no_sensors:
+        try:
+            i2c_bus = busio.I2C(board.SCL, board.SDA)
+            door1_sensor = setup_tof_sensors(i2c_bus, shared_counter=carriage_counter)
 
-    # 4. Start ToF Background Thread
-    tof_thread = threading.Thread(target=door1_sensor.start_polling, daemon=True)
-    tof_thread.start()
-    print("[Main] ToF background polling thread started successfully.")
-
+            # 4. Start ToF Background Thread
+            tof_thread = threading.Thread(target=door1_sensor.start_polling, daemon=True)
+            tof_thread.start()
+            print("[Main] ToF background polling thread started successfully.")
+        except Exception as e:
+            print(f"\n[Warning] Could not initialize ToF sensors: {e}")
+            print("[Warning] Continuing with camera only...\n")
+    else:
+        print("[Main] Skipping ToF sensors setup (--no-sensors flag active).")
     # 5. The orchestrator only needs to listen to the central carriage counter!
     sensors = [carriage_counter]
 
@@ -222,8 +240,8 @@ def main():
 
     try:
         while running:
-            start_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            print(f"\n[{start_time_str}] Starting processing cycle...")
+            # start_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # print(f"\n[{start_time_str}] Starting processing cycle...")
             
             start_time = time.time()
 
@@ -231,8 +249,15 @@ def main():
             result = load_monitor_service.run_cycle()
             
             if result:
-                print(f"[{time.strftime('%H:%M:%S')}] People detected (YOLO): {result['person_count']}")
-                print(f"Sensor data sent: {result['sensor_data']}")
+                camera_val = result['person_count']
+                tof_val = int(result['sensor_data'].ir_count)
+
+                print("\n" + "." * 50)
+                print("|" + " SUMMARY REPORT ".center(48) + "|")
+                print("." * 50)
+                print("|" + f" Camera Counter (YOLO) : {camera_val}".ljust(48) + "|")
+                print("|" + f" Sensors Counter (ToF) : {tof_val}".ljust(48) + "|")
+                print("." * 50 + "\n")
 
                 # Save the annotated image
                 annotated_frame = processor.draw_annotations(result['frame'], result['detections'], result['person_count'])
@@ -250,7 +275,7 @@ def main():
                 break
 
             processing_time = time.time() - start_time
-            print(f"Cycle processing time: {processing_time:.4f} seconds")
+            # print(f"Cycle processing time: {processing_time:.4f} seconds")
 
             # Handle delays based on mode
             if args.mode == "images":
