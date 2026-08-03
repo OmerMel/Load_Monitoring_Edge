@@ -1,6 +1,6 @@
-# hal/tof_unit.py
 import time
-from gpiozero import DigitalOutputDevice
+import board
+import digitalio
 import adafruit_vl53l0x
 
 class TofUnit:
@@ -8,20 +8,30 @@ class TofUnit:
         self.target_address = target_i2c_address
         self.threshold = threshold_mm
         self.i2c_bus = i2c_bus
-        
-        # הגדרת פין ה-XSHUT כפלט (Output) לשליטה בחשמל של החיישן
-        self.xshut = DigitalOutputDevice(xshut_pin)
-        
-        # המשתנה שיחזיק את אובייקט החיישן של Adafruit אחרי שנדליק אותו
         self.sensor = None 
+        
+        # המרת מספר הפין לאובייקט פין של CircuitPython
+        # אם xshut_pin הוא 17, אנחנו משיגים את board.D17
+        pin_name = f"D{xshut_pin}"
+        if not hasattr(board, pin_name):
+            raise ValueError(f"Invalid GPIO pin: {xshut_pin}")
+            
+        board_pin = getattr(board, pin_name)
+        
+        # הגדרת הפין כ-Output דרך digitalio (הספרייה של Adafruit)
+        self.xshut = digitalio.DigitalInOut(board_pin)
+        self.xshut.direction = digitalio.Direction.OUTPUT
+        
+        # מכבים את החיישן כברירת מחדל בעת יצירת האובייקט
+        self.xshut.value = False
 
     def turn_off(self):
         """מוריד מתח ל-LOW ומכבה את החיישן"""
-        self.xshut.off()
+        self.xshut.value = False
 
     def turn_on(self):
         """מעלה מתח ל-HIGH, מדליק וממתין לאתחול"""
-        self.xshut.on()
+        self.xshut.value = True
         time.sleep(0.1)  # חובה לתת לחיישן כמה מילישניות להתעורר
 
     def setup_sensor(self):
@@ -32,7 +42,7 @@ class TofUnit:
         # 1. התחברות לחיישן בכתובת המקורית שלו (0x29)
         self.sensor = adafruit_vl53l0x.VL53L0X(self.i2c_bus)
         
-        # 2. צריבת הכתובת החדשה (נשמר בזיכרון ה-RAM של החיישן עד לכיבוי הבא)
+        # 2. צריבת הכתובת החדשה (נשמר בזיכרון עד לכיבוי הבא)
         self.sensor.set_address(self.target_address)
         
     def read_distance(self) -> int:
@@ -44,8 +54,6 @@ class TofUnit:
     def is_blocked(self) -> bool:
         """
         מחזיר True אם מישהו עובר בטווח.
-        הערה: VL53L0X מחזיר לפעמים מספרים גבוהים מאוד (כמו 8190) כשהוא לא קולט כלום.
-        לכן בודקים שהמרחק גדול מ-0 אבל קטן מהסף.
         """
         distance = self.read_distance()
         return 0 < distance < self.threshold
