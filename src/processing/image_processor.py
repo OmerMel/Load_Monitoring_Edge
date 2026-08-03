@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import cv2
 import numpy as np
 from typing import List, Tuple, Optional
@@ -30,20 +29,7 @@ class ImageProcessor:
         self.iou = iou
         self.min_box_area = min_box_area
         self.use_clahe = use_clahe
-
-        if model_path.endswith(".pt"):
-            base_name = model_path.rsplit(".", 1)[0]
-            ncnn_folder = f"{base_name}_ncnn_model"
-            
-            if not os.path.exists(ncnn_folder):
-                print(f"[-] NCNN model folder not found. Exporting {model_path} to NCNN format...")
-                temp_model = YOLO(model_path)
-                temp_model.export(format="ncnn", half=True)
-                print("[+] Export completed successfully!")
-            
-            self.model_path = ncnn_folder
-        else:
-            self.model_path = model_path
+        self.model_path = model_path
 
         # Load YOLO model from disk
         print(f"Loading YOLO model from {model_path}...")
