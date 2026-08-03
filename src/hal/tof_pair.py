@@ -62,7 +62,7 @@ class TofPair(Sensor):
             if not out_blocked and not in_blocked:
                 # המעבר הושלם בהצלחה! האדם סיים לעבור ושני החיישנים פנויים
                 self.shared_counter.person_entered()
-                print(f">>> [ToF {self.sensor_id}] Person ENTERED.")
+                # print(f">>> [ToF {self.sensor_id}] Person ENTERED.")
                 self.state = "IDLE"
             elif not out_blocked and in_blocked:
                 self.state = "ENTER_FINISHING" # התקדמות טבעית קדימה
@@ -84,7 +84,7 @@ class TofPair(Sensor):
             if not out_blocked and not in_blocked:
                 # המעבר הושלם בהצלחה!
                 self.shared_counter.person_exited()
-                print(f"<<< [ToF {self.sensor_id}] Person EXITED.")
+                # print(f"<<< [ToF {self.sensor_id}] Person EXITED.")
                 self.state = "IDLE"
             elif out_blocked and not in_blocked:
                 self.state = "EXIT_FINISHING" # התקדמות טבעית החוצה
