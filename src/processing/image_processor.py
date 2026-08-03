@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import cv2
 import numpy as np
 from typing import List, Tuple, Optional
@@ -17,19 +18,32 @@ class ImageProcessor:
 
     def __init__(
         self,
-        model_path: str = "yolov8n.pt",  # YOLO model file
+        model_path: str = "yolov26n.pt",  # YOLO model file
         imgsz: int = 1280,  # Inference image size
         conf: float = 0.25,  # Confidence threshold for detections
         iou: float = 0.45,   # Prevents duplicate boxes around the same person
         min_box_area: int = 500,  # Minimum box area to consider valid
         use_clahe: bool = False   # Enable CLAHE preprocessing for better contrast
     ):
-        self.model_path = model_path
         self.imgsz = imgsz
         self.conf = conf
         self.iou = iou
         self.min_box_area = min_box_area
         self.use_clahe = use_clahe
+
+        if model_path.endswith(".pt"):
+            base_name = model_path.rsplit(".", 1)[0]
+            ncnn_folder = f"{base_name}_ncnn_model"
+            
+            if not os.path.exists(ncnn_folder):
+                print(f"[-] NCNN model folder not found. Exporting {model_path} to NCNN format...")
+                temp_model = YOLO(model_path)
+                temp_model.export(format="ncnn", half=True)
+                print("[+] Export completed successfully!")
+            
+            self.model_path = ncnn_folder
+        else:
+            self.model_path = model_path
 
         # Load YOLO model from disk
         print(f"Loading YOLO model from {model_path}...")
@@ -116,32 +130,44 @@ class ImageProcessor:
         annotated = frame.data.copy()
         
         for box in boxes:
-            # Draw bounding box around detected person
+            # Draw bounding box around detected person with a thinner line
             cv2.rectangle(
                 annotated,
                 (box.x1, box.y1),
                 (box.x2, box.y2),
                 (0, 255, 0),
-                2
+                1  # Thinner box
             )
 
-            # Draw label with confidence score
-            label = f"Person {box.conf:.2f}"
+            # Draw label with just the confidence score (smaller text)
+            label = f"{box.conf:.2f}"
+            font_scale = 0.4
+            thickness = 1
             (label_w, label_h), _ = cv2.getTextSize(
-                label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
 
-            # Draw label background for better visibility
-            cv2.rectangle(annotated, (box.x1, box.y1 - 20),
-                          (box.x1 + label_w, box.y1), (0, 255, 0), -1)
+            # Adjust label position to stay within image bounds
+            y_bg_top = box.y1 - label_h - 4
+            y_bg_bottom = box.y1
+            y_text = box.y1 - 2
+            
+            if y_bg_top < 0:
+                y_bg_top = box.y1
+                y_bg_bottom = box.y1 + label_h + 4
+                y_text = box.y1 + label_h + 2
+
+            # Draw small label background
+            cv2.rectangle(annotated, (box.x1, y_bg_top),
+                          (box.x1 + label_w + 4, y_bg_bottom), (0, 255, 0), -1)
 
             cv2.putText(
                 annotated,
                 label,
-                (box.x1, box.y1 - 5),
+                (box.x1 + 2, y_text),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
+                font_scale,
                 (0, 0, 0),  # Black text on green background
-                2,
+                thickness,
             )
 
         # Draw total people count in the top-right corner
