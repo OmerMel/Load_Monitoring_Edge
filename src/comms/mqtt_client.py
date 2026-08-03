@@ -51,12 +51,12 @@ class MqttSensorClient(CommsClient):
     # ---------------------------------------------------------------------------------------------------------------#
     # Function to handle the publication of a message
     def _on_publish(self, client, userdata, message_id):
-        print(f"Message published (mid={message_id})")
+        pass # print(f"Message published (mid={message_id})")
 
     # ---------------------------------------------------------------------------------------------------------------#
     # Function to handle the logging of the MQTT client
     def _on_log(self, client, userdata, level, buffer):
-        print(f"MQTT LOG: {buffer}")
+        pass # print(f"MQTT LOG: {buffer}")
 
     # ---------------------------------------------------------------------------------------------------------------#
     # Function to connect to the MQTT broker
@@ -94,14 +94,14 @@ class MqttSensorClient(CommsClient):
         # Entity ->  DTO -> JSON string
         dto = SensorDataConverter.to_dto(data)
         json_payload = json.dumps(asdict(dto))
-        print(f"Publishing to {self.topic}: {json_payload}")
+        # print(f"Publishing to {self.topic}: {json_payload}")
 
         # Send the message to the MQTT broker
         info = self.client.publish(self.topic, json_payload, qos=1)
         # Wait for the message to be published
         info.wait_for_publish()
 
-        print(f"Publish rc={info.rc}")
+        # print(f"Publish rc={info.rc}")
         # Return the result of the publication
         return info.rc == mqtt.MQTT_ERR_SUCCESS
 
