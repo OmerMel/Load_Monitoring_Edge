@@ -157,6 +157,7 @@ def initialize_system_components(args):
     carriage_counter = CarriageCounter(sensor_id=f"carriage_{CARRIAGE_NUMBER}_total")
 
 # 3. ToF Sensors Hardware Setup (With bypass and error handling)
+    door1_sensor = None
     if not args.no_sensors:
         try:
             i2c_bus = busio.I2C(board.SCL, board.SDA)
@@ -203,6 +204,7 @@ def initialize_system_components(args):
         comms=mqtt_client,
         train_id=TRAIN_ID,
         carriage_number=CARRIAGE_NUMBER,
+        tof_alive_check=door1_sensor.is_alive if door1_sensor is not None else None,
     )
 
     return image_source, mqtt_client, file_manager, processor, load_monitor_service
@@ -251,24 +253,30 @@ def main():
             if result:
                 camera_val = result['person_count']
                 tof_val = int(result['sensor_data'].ir_count)
+                camera_status = result['sensor_data'].camera_status
+                ir_status = result['sensor_data'].ir_status
 
                 print("\n" + "." * 50)
                 print("|" + " SUMMARY REPORT ".center(48) + "|")
                 print("." * 50)
-                print("|" + f" Camera Counter (YOLO) : {camera_val}".ljust(48) + "|")
-                print("|" + f" Sensors Counter (ToF) : {tof_val}".ljust(48) + "|")
+                print("|" + f" Camera Counter (YOLO) : {camera_val} [{camera_status}]".ljust(48) + "|")
+                print("|" + f" Sensors Counter (ToF) : {tof_val} [{ir_status}]".ljust(48) + "|")
                 print("." * 50 + "\n")
 
-                # Save the annotated image
-                annotated_frame = processor.draw_annotations(result['frame'], result['detections'], result['person_count'])
-                source_id = result['frame'].source_id
-                
-                if args.mode == "images" and source_id.startswith("file:"):
-                    original_name = source_id.replace("file:", "").rsplit(".", 1)[0]
-                    prefix = f"images_result_{original_name}"
-                    file_manager.save_image(annotated_frame, prefix=prefix, timestamp=False)
+                frame = result['frame']
+                if frame is not None:
+                    # Save the annotated image
+                    annotated_frame = processor.draw_annotations(frame, result['detections'], result['person_count'])
+                    source_id = frame.source_id
+
+                    if args.mode == "images" and source_id.startswith("file:"):
+                        original_name = source_id.replace("file:", "").rsplit(".", 1)[0]
+                        prefix = f"images_result_{original_name}"
+                        file_manager.save_image(annotated_frame, prefix=prefix, timestamp=False)
+                    else:
+                        file_manager.save_image(annotated_frame, prefix="live", timestamp=True)
                 else:
-                    file_manager.save_image(annotated_frame, prefix="live", timestamp=True)
+                    print("Warning: No frame captured this cycle; skipping image save.")
                     
             elif args.mode == "images" and getattr(image_source, "exhausted", False):
                 print("\nAll images processed.")

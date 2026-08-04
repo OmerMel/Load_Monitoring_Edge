@@ -16,6 +16,8 @@ class SensorDataConverter:
             cameraCount=entity.camera_count,
             irCount=entity.ir_count,
             calculatedOccupancy=entity.calculated_occupancy,
+            cameraStatus=entity.camera_status,
+            irStatus=entity.ir_status,
             timestamp=entity.timestamp.isoformat(),
         )
 
@@ -27,5 +29,7 @@ class SensorDataConverter:
             camera_count=dto.cameraCount,
             ir_count=dto.irCount,
             calculated_occupancy=dto.calculatedOccupancy,
+            camera_status=dto.cameraStatus,
+            ir_status=dto.irStatus,
             timestamp=datetime.fromisoformat(dto.timestamp),
         )

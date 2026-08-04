@@ -13,4 +13,6 @@ class SensorDataDTO:
     cameraCount: int
     irCount: int
     calculatedOccupancy: int
+    cameraStatus: str
+    irStatus: str
     timestamp: str

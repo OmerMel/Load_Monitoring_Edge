@@ -19,12 +19,21 @@ class TofPair(Sensor):
             self.shared_counter = shared_counter
             self.state = "IDLE"
             self.is_running = False
+            self.last_update = time.time()
 
     def start_polling(self):
         self.is_running = True
         while self.is_running:
-            self._update_state()
+            try:
+                self._update_state()
+                self.last_update = time.time() 
+            except Exception as e:
+                print(f"[ToF {self.sensor_id}] Error reading sensors: {e}")
             time.sleep(self.poll_interval)
+
+    def is_alive(self, max_silence_sec: float = 5.0) -> bool:
+        """Returns False if the polling loop hasn't ticked recently (thread died or stuck)."""
+        return (time.time() - self.last_update) < max_silence_sec
 
     def stop_polling(self):
         self.is_running = False
