@@ -110,24 +110,24 @@ def run_countdown(seconds):
 def setup_tof_sensors(i2c_bus, shared_counter: CarriageCounter) -> TofPair:
     print("[Boot Sequence] Setting up ToF I2C Addresses...")
     
-    # 1. יצירת האובייקטים לפי GPIO
+    # 1. Create the objects based on GPIO pins
     tof_outside = TofUnit(xshut_pin=27, target_i2c_address=0x30, threshold_mm=1000, i2c_bus=i2c_bus)
     tof_inside = TofUnit(xshut_pin=17, target_i2c_address=0x32, threshold_mm=1000, i2c_bus=i2c_bus)
 
-    # 2. כיבוי טוטאלי ומניעת התנגשויות
+    # 2. Full power-down to prevent address collisions
     print("ToF 0x30 turning off")
     tof_outside.turn_off()
     print("ToF 0x31 turning off")
     tof_inside.turn_off()
     time.sleep(0.5)
 
-    # 4. הדלקה והגדרת חיישן פנימי
+    # 4. Power on and configure the inside sensor
     print("Initializing Inside (0x31) Sensor...")
     tof_inside.turn_on()
     time.sleep(0.5)
     tof_inside.setup_sensor() 
     
-    # 3. הדלקה והגדרת חיישן חיצוני
+    # 3. Power on and configure the outside sensor
     print("Initializing Outside (0x30) Sensor...")
     tof_outside.turn_on()
     time.sleep(0.5)
@@ -137,7 +137,7 @@ def setup_tof_sensors(i2c_bus, shared_counter: CarriageCounter) -> TofPair:
 
     print("[Boot Sequence] ToF sensors ready!")
     
-    # מחזירים את הזוג ומעבירים לו את המונה המשותף של הקרון!
+    # Return the pair and hand it the carriage's shared counter!
     return TofPair(
         outside_unit=tof_outside, 
         inside_unit=tof_inside, 
