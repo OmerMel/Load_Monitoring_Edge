@@ -16,4 +16,10 @@ outputs/
 #YOLO Models
 yolo11n.pt
 yolov8n.pt
-yolov8s.pt
+yolo26s.pt
+
+#NCNN Models
+yolo11n_ncnn_model/
+yolov8n_ncnn_model/
+yolo26s_ncnn_model/
+yolo26n_ncnn_model/
